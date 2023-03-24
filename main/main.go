@@ -3,9 +3,8 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
-	"io"
-	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -24,14 +23,13 @@ var (
 	app          *firebase.App
 	client       *storage.Client
 	dbConnection *sql.DB
-	bufferSize   = 1024 * 32 // 32 KB
-
-	bufPool = sync.Pool{
-		New: func() interface{} {
-			return make([]byte, bufferSize)
-		},
-	}
 )
+
+type ObjectData struct {
+	Title       string   `json:"title"`
+	Description string   `json:"description"`
+	ImageFiles  []string `json:"imageFiles"`
+}
 
 func init() {
 	// Initialize Firebase app and storage client
@@ -71,8 +69,17 @@ func main() {
 }
 
 func handleImageMultiUpload(c *gin.Context) {
-	form, _ := c.MultipartForm()
-	files := form.File["images"]
+	var objects []ObjectData
+	if err := c.BindJSON(&objects); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if len(objects) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No objects to upload"})
+		return
+	}
+
 	bucketName := "oauthtest-8d82e.appspot.com"
 	bucket, err := client.Bucket(bucketName)
 	if err != nil {
@@ -83,70 +90,92 @@ func handleImageMultiUpload(c *gin.Context) {
 	var imageURLs []string
 	var wg sync.WaitGroup
 
-	var ch = make(chan string, len(files))
+	ch := make(chan string)
 
-	for _, file := range files {
-		wg.Add(1)
-		go func(file *multipart.FileHeader) {
-			defer wg.Done()
-			// Generate UUID for the file name
-			uuid := uuid.New().String()
-			ext := filepath.Ext(file.Filename)
-			filename := uuid + ext
-			// Upload file to Firebase storage
-			object := bucket.Object(fmt.Sprintf("images/%s", filename))
-			wc := object.NewWriter(context.Background())
+	for _, obj := range objects {
+		for _, imageFile := range obj.ImageFiles {
+			wg.Add(1)
+			go func(imageFile string) {
+				defer wg.Done()
 
-			//defer wc.Close()
+				// Decode base64-encoded image data
+				data, err := base64.StdEncoding.DecodeString(imageFile)
+				if err != nil {
+					ch <- err.Error()
+					return
+				}
 
-			src, err := file.Open()
-			if err != nil {
-				ch <- err.Error()
-				return
-			}
-			defer src.Close()
+				// Generate UUID for the file name
+				uuid := uuid.New().String()
+				ext := filepath.Ext(obj.Title)
+				filename := uuid + ext
 
-			buf := bufPool.Get().([]byte)
-			defer bufPool.Put(buf)
+				// Upload file to Firebase storage
+				object := bucket.Object(fmt.Sprintf("images/%s", filename))
+				wc := object.NewWriter(context.Background())
 
-			if _, err := io.CopyBuffer(wc, src, buf); err != nil {
-				ch <- err.Error()
-				return
-			}
+				if _, err := wc.Write(data); err != nil {
+					ch <- err.Error()
+					return
+				}
 
-			// Close the writer to wait for upload to complete
-			if err := wc.Close(); err != nil {
-				ch <- err.Error()
-				return
-			}
+				if err := wc.Close(); err != nil {
+					ch <- err.Error()
+					return
+				}
 
-			// Get public URL of uploaded file
-
-			imageURL := fmt.Sprintf("https://storage.googleapis.com/%s/%s", bucketName, object.ObjectName())
-			ch <- imageURL
-		}(file)
+				imageURL := fmt.Sprintf("https://storage.googleapis.com/%s/%s", bucketName, object.ObjectName())
+				imageURLs = append(imageURLs, imageURL)
+				ch <- imageURL
+			}(imageFile)
+		}
 	}
+
 	go func() {
 		wg.Wait()
 		close(ch)
 	}()
 
-	for imageURL := range ch {
-		if imageURL == "" {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to upload image"})
-			return
+	var objectValues []string
+	var imageURLValues []string
+	var imageURLArgs []interface{}
+
+	for _, obj := range objects {
+		objectValues = append(objectValues, "(?, ?)")
+		for _, _ = range obj.ImageFiles {
+			imageURLValues = append(imageURLValues, "(?, ?)")
 		}
-		imageURLs = append(imageURLs, imageURL)
 	}
 
-	var valueStrings []string
-	var valueArgs []interface{}
-	for _, url := range imageURLs {
-		valueStrings = append(valueStrings, "(?)")
-		valueArgs = append(valueArgs, url)
+	stmt := fmt.Sprintf("INSERT INTO object_data (title, description) VALUES %s", strings.Join(objectValues, ","))
+	args := []interface{}{}
+
+	for _, obj := range objects {
+		args = append(args, obj.Title, obj.Description)
 	}
-	stmt := fmt.Sprintf("INSERT INTO temp (imgurl) VALUES %s", strings.Join(valueStrings, ","))
-	_, err = dbConnection.Exec(stmt, valueArgs...)
+
+	result, err := dbConnection.Exec(stmt, args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	objectID, err := result.LastInsertId()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	for _, obj := range objects {
+		for range obj.ImageFiles {
+			imageURL := <-ch
+			imageURLArgs = append(imageURLArgs, objectID, imageURL)
+		}
+		objectID++
+	}
+
+	stmt = fmt.Sprintf("INSERT INTO image_urls (object_id, url) VALUES %s", strings.Join(imageURLValues, ","))
+	_, err = dbConnection.Exec(stmt, imageURLArgs...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
