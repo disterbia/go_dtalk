@@ -12,6 +12,7 @@ func main() {
 	router := gin.Default()
 	router.POST("/multiupload", handler.HandleImageMultiUpload)
 	router.GET("/ws", handler.HandleWebSocket)
+	router.GET("/videos", handler.ReadVideo)
 	router.POST("/upload", handler.VideoHandler)
 	fmt.Println("start")
 	//router.RunTLS(":443", "./cert.pem", "./key.pem")

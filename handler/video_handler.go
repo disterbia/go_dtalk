@@ -7,12 +7,16 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
+	"cloud.google.com/go/storage"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"google.golang.org/api/iterator"
 )
 
 func VideoHandler(c *gin.Context) {
@@ -140,4 +144,85 @@ func VideoHandler(c *gin.Context) {
 		"message": "Upload success",
 		"url":     downloadURL,
 	})
+}
+
+type Video struct {
+	Url string `json:"url"`
+}
+
+func ReadVideo(c *gin.Context) {
+	pageStr := c.DefaultQuery("page", "0")
+	page, err := strconv.Atoi(pageStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid page number",
+		})
+		return
+	}
+
+	videos, err := getVideosFromStorage(page)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to fetch videos",
+		})
+		return
+	}
+
+	if videos == nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Page not found",
+		})
+		return
+	}
+
+	// Extract URLs from the Video structs
+	videoUrls := make([]string, len(videos))
+	for i, video := range videos {
+		videoUrls[i] = video.Url
+	}
+
+	c.JSON(http.StatusOK, videoUrls)
+}
+
+func getVideosFromStorage(page int) ([]Video, error) {
+	ctx := context.Background()
+
+	bucket := client.Bucket(bucketName)
+
+	query := &storage.Query{
+		Prefix: "videos/",
+	}
+	objs := bucket.Objects(ctx, query)
+
+	var videoUrls []string
+	for {
+		attrs, err := objs.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		if strings.HasSuffix(attrs.Name, ".m3u8") {
+			videoUrls = append(videoUrls, attrs.MediaLink)
+		}
+	}
+	pageSize := 5
+	startIndex := page * pageSize
+	endIndex := startIndex + pageSize
+	if endIndex > len(videoUrls) {
+		endIndex = len(videoUrls)
+	}
+
+	if startIndex >= len(videoUrls) {
+		return nil, nil
+	}
+
+	videos := make([]Video, endIndex-startIndex)
+	for i := startIndex; i < endIndex; i++ {
+		videos[i-startIndex] = Video{Url: videoUrls[i]}
+	}
+
+	return videos, nil
 }
