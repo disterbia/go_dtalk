@@ -18,29 +18,35 @@ var upgrader = websocket.Upgrader{
 }
 
 type User struct {
-	Conn *websocket.Conn
+	Conn   *websocket.Conn
+	RoomId string
 }
 
 type Message struct {
 	Username string `json:"username"`
 	Text     string `json:"text"`
+	RoomId   string `json:"roomId"`
 }
 
-var users = make(map[*User]bool)
-var broadcast = make(chan Message)
+type Room struct {
+	Users     map[*User]bool
+	Broadcast chan Message
+}
+
+var rooms = make(map[string]*Room)
 var lock = sync.RWMutex{}
 
-func handleMessages() {
+func handleMessages(room *Room) {
 	for {
-		msg := <-broadcast
+		msg := <-room.Broadcast
 
 		lock.RLock()
-		for user := range users {
+		for user := range room.Users {
 			err := user.Conn.WriteJSON(msg)
 			if err != nil {
 				fmt.Printf("error: %v", err)
 				user.Conn.Close()
-				delete(users, user)
+				delete(room.Users, user)
 			}
 		}
 		lock.RUnlock()
@@ -48,31 +54,57 @@ func handleMessages() {
 }
 
 func HandleWebSocket(c *gin.Context) {
-	go handleMessages()
+	roomId := c.Query("roomId")
+
+	lock.Lock()
+	if _, ok := rooms[roomId]; !ok {
+		rooms[roomId] = &Room{
+			Users:     make(map[*User]bool),
+			Broadcast: make(chan Message),
+		}
+		go handleMessages(rooms[roomId])
+	}
+	lock.Unlock()
+
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		fmt.Printf("error: %v\n", err)
 		return
 	}
 
-	user := &User{Conn: conn}
-	users[user] = true
+	user := &User{Conn: conn, RoomId: roomId}
+	rooms[roomId].Users[user] = true
 
 	message := Message{
 		Username: "system",
 		Text:     "새로운 사용자가 입장했습니다.",
+		RoomId:   roomId,
 	}
-	broadcast <- message
-
+	rooms[roomId].Broadcast <- message
 	for {
 		var msg Message
 		err := conn.ReadJSON(&msg)
 		if err != nil {
 			fmt.Printf("error: %v\n", err)
-			delete(users, user)
+			removeUserFromRoom(roomId, user)
 			break
 		}
 
-		broadcast <- msg
+		rooms[roomId].Broadcast <- msg
+	}
+}
+
+func removeUserFromRoom(roomId string, user *User) {
+	lock.Lock()
+	defer lock.Unlock()
+
+	if room, ok := rooms[roomId]; ok {
+		delete(room.Users, user)
+		message := Message{
+			Username: "system",
+			Text:     "사용자가 퇴장했습니다.",
+			RoomId:   roomId,
+		}
+		room.Broadcast <- message
 	}
 }
