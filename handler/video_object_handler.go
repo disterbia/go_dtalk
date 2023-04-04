@@ -3,6 +3,7 @@ package handler
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -11,23 +12,44 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"sync"
+	"time"
 
-	"cloud.google.com/go/storage"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"google.golang.org/api/iterator"
 )
 
-func VideoHandler(c *gin.Context) {
-	form, err := c.MultipartForm()
+type VideoObject struct {
+	Title    string `json:"title"`
+	Uploader string `json:"uploader"`
+}
+
+type VideoData struct {
+	Title      string `json:"title"`
+	Uploader   string `json:"uploader"`
+	URL        string `json:"url"`
+	UploadTime string `json:"uploadTime"`
+	LikesCount int    `json:"likesCount"`
+}
+
+func VideoObjectHandler(c *gin.Context) {
+
+	// 메타데이터를 파싱합니다.
+	metadata := c.PostForm("metadata")
+	fmt.Println(metadata)
+	var videoObjects []VideoObject
+	err := json.Unmarshal([]byte(metadata), &videoObjects)
 	if err != nil {
-		c.String(400, fmt.Sprintf("get form err: %s", err.Error()))
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
+	// 파일을 가져옵니다.
+	form, err := c.MultipartForm()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	files := form.File["files"]
 
 	// 임시 디렉토리 생성
@@ -43,9 +65,10 @@ func VideoHandler(c *gin.Context) {
 	results := make(chan gin.H, len(files))
 
 	for _, file := range files {
+		//videoObject := videoObjects[index]
+
 		go func(file *multipart.FileHeader) {
 			defer wg.Done()
-
 			// 파일 저장
 			src := fmt.Sprintf("%s/%s", tmpDir, file.Filename)
 			if err := c.SaveUploadedFile(file, src); err != nil {
@@ -163,6 +186,24 @@ func VideoHandler(c *gin.Context) {
 				results <- gin.H{"file": file.Filename, "error": fmt.Sprintf("get download URL err: %s", err.Error())}
 				return
 			}
+			// 업로드된 동영상 정보 firebase database에 저장
+			if err != nil {
+				log.Fatalf("Failed to create firestore client: %v", err)
+			}
+			defer dbClient.Close()
+
+			_, _, err = dbClient.Collection("videos").Add(context.Background(), map[string]interface{}{
+				"title":       videoObjects[0].Title,
+				"uploader":    videoObjects[0].Uploader,
+				"url":         downloadURL,
+				"upload_time": time.Now(),
+				"likes":       0,
+			})
+
+			if err != nil {
+				results <- gin.H{"file": file.Filename, "error": fmt.Sprintf("upload video info to firestore err: %s", err.Error())}
+				return
+			}
 
 			// 업로드 완료 후 다운로드 URL 반환
 			results <- gin.H{"file": file.Filename, "url": downloadURL}
@@ -178,85 +219,4 @@ func VideoHandler(c *gin.Context) {
 	}
 
 	c.JSON(200, responseData)
-}
-
-type Video struct {
-	Url string `json:"url"`
-}
-
-func ReadVideo(c *gin.Context) {
-	pageStr := c.DefaultQuery("page", "0")
-	page, err := strconv.Atoi(pageStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Invalid page number",
-		})
-		return
-	}
-
-	videos, err := getVideosFromStorage(page)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to fetch videos",
-		})
-		return
-	}
-
-	if videos == nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Page not found",
-		})
-		return
-	}
-
-	// Extract URLs from the Video structs
-	videoUrls := make([]string, len(videos))
-	for i, video := range videos {
-		videoUrls[i] = video.Url
-	}
-
-	c.JSON(http.StatusOK, videoUrls)
-}
-
-func getVideosFromStorage(page int) ([]Video, error) {
-	ctx := context.Background()
-
-	bucket := client.Bucket(bucketName)
-
-	query := &storage.Query{
-		Prefix: "videos/",
-	}
-	objs := bucket.Objects(ctx, query)
-
-	var videoUrls []string
-	for {
-		attrs, err := objs.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-
-		if strings.HasSuffix(attrs.Name, ".m3u8") {
-			videoUrls = append(videoUrls, attrs.MediaLink)
-		}
-	}
-	pageSize := 5
-	startIndex := page * pageSize
-	endIndex := startIndex + pageSize
-	if endIndex > len(videoUrls) {
-		endIndex = len(videoUrls)
-	}
-
-	if startIndex >= len(videoUrls) {
-		return nil, nil
-	}
-
-	videos := make([]Video, endIndex-startIndex)
-	for i := startIndex; i < endIndex; i++ {
-		videos[i-startIndex] = Video{Url: videoUrls[i]}
-	}
-
-	return videos, nil
 }
