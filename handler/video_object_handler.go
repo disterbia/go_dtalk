@@ -2,7 +2,7 @@ package handler
 
 import (
 	"bufio"
-	"context"
+
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,6 +23,7 @@ import (
 type VideoObject struct {
 	Title    string `json:"title"`
 	Uploader string `json:"uploader"`
+	Path     string `json:"path"`
 }
 
 type VideoData struct {
@@ -119,7 +120,7 @@ func VideoObjectHandler(c *gin.Context) {
 							io.Copy(pw, tsFile)
 						}()
 
-						wc := bucket.Object(objectPath).NewWriter(context.Background())
+						wc := bucket.Object(objectPath).NewWriter(ctx)
 						defer wc.Close()
 
 						if _, err = io.Copy(wc, pr); err != nil {
@@ -171,7 +172,7 @@ func VideoObjectHandler(c *gin.Context) {
 
 			// 수정된 .m3u8 파일을 Firebase Storage에 업로드
 			objectPath := fmt.Sprintf("videos/%s-%s.m3u8", uniqueID, file.Filename)
-			wc := bucket.Object(objectPath).NewWriter(context.Background())
+			wc := bucket.Object(objectPath).NewWriter(ctx)
 			defer wc.Close()
 
 			m3u8ModifiedFile.Seek(0, io.SeekStart)
@@ -190,9 +191,8 @@ func VideoObjectHandler(c *gin.Context) {
 			if err != nil {
 				log.Fatalf("Failed to create firestore client: %v", err)
 			}
-			defer dbClient.Close()
 
-			_, _, err = dbClient.Collection("videos").Add(context.Background(), map[string]interface{}{
+			_, _, err = dbClient.Collection("videos").Add(ctx, map[string]interface{}{
 				"title":       videoObjects[0].Title,
 				"uploader":    videoObjects[0].Uploader,
 				"url":         downloadURL,

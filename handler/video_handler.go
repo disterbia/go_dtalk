@@ -242,7 +242,7 @@ func getVideosFromStorage(page int) ([]Video, error) {
 			videoUrls = append(videoUrls, attrs.MediaLink)
 		}
 	}
-	pageSize := 5
+	pageSize := 3
 	startIndex := page * pageSize
 	endIndex := startIndex + pageSize
 	if endIndex > len(videoUrls) {

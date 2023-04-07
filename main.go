@@ -21,5 +21,6 @@ func main() {
 	fmt.Println("start")
 	//router.RunTLS(":443", "./cert.pem", "./key.pem")
 	router.Run(":8080")
+	defer handler.CloseClientsAndConnections()
 
 }

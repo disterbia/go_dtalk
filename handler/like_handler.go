@@ -33,9 +33,9 @@ func UpdateLikes(c *gin.Context) {
 		}
 
 		if action == "like" {
-			video.LikesCount++
+			//video.LikesCount++
 		} else if action == "dislike" {
-			video.LikesCount--
+			//video.LikesCount--
 		} else {
 			return errors.New("Invalid action parameter")
 		}

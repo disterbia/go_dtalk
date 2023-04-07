@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -12,10 +11,10 @@ func LoginHandler(c *gin.Context) {
 	userID := c.PostForm("userID")
 
 	// Firestore에서 사용자 ID를 확인합니다.
-	_, err := dbClient.Collection("users").Doc(userID).Get(context.Background())
+	_, err := dbClient.Collection("users").Doc(userID).Get(ctx)
 	if err != nil {
 		// 사용자 ID가 없으면 새 사용자를 추가합니다.
-		_, err = dbClient.Collection("users").Doc(userID).Set(context.Background(), map[string]interface{}{
+		_, err = dbClient.Collection("users").Doc(userID).Set(ctx, map[string]interface{}{
 			"id": userID,
 		})
 

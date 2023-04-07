@@ -9,7 +9,6 @@ import (
 
 	"cloud.google.com/go/firestore"
 	"cloud.google.com/go/storage"
-	firebase "firebase.google.com/go"
 	"github.com/go-sql-driver/mysql"
 	"google.golang.org/api/option"
 )
@@ -23,7 +22,7 @@ var (
 )
 
 var (
-	app           *firebase.App
+	//app           *firebase.App
 	opt           option.ClientOption
 	client        *storage.Client
 	dbConnection  *sql.DB
@@ -33,24 +32,39 @@ var (
 	storageClient *storage.Client
 	dberr         error
 	storageError  error
+	ctx           = context.Background()
 )
+
+func CloseClientsAndConnections() {
+	if dbClient != nil {
+		dbClient.Close()
+	}
+	if storageClient != nil {
+		storageClient.Close()
+	}
+	if dbConnection != nil {
+		dbConnection.Close()
+	}
+}
 
 func Init() {
 	// Initialize Firebase app and storage client
 	opt = option.WithCredentialsFile("./firebase_credentials.json")
-	var err error
-	app, err = firebase.NewApp(context.Background(), nil, opt)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Firebase app initialization error: %v\n", err)
-		os.Exit(1)
-	}
-	dbClient, dberr = firestore.NewClient(context.Background(), projectId, opt)
+	// var err error
+	// app, err = firebase.NewApp(ctx, nil, opt)
+	// if err != nil {
+	// 	fmt.Fprintf(os.Stderr, "Firebase app initialization error: %v\n", err)
+	// 	os.Exit(1)
+	// }
+	dbClient, dberr = firestore.NewClient(ctx, projectId, opt)
+
 	if dberr != nil {
 		log.Fatalf("Failed to create Firestore client: %v", dberr)
 	}
-	storageClient, storageError = storage.NewClient(context.Background(), opt)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Firebase storage initialization error: %v\n", err)
+	storageClient, storageError = storage.NewClient(ctx, opt)
+
+	if storageError != nil {
+		fmt.Fprintf(os.Stderr, "Firebase storage initialization error: %v\n", storageError)
 		os.Exit(1)
 	}
 	client = storageClient
@@ -64,7 +78,7 @@ func Init() {
 		AllowNativePasswords: true,
 		ParseTime:            true,
 	}
-	dbConnection, err = sql.Open("mysql", config.FormatDSN())
+	dbConnection, err := sql.Open("mysql", config.FormatDSN())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Database initialization error: %v\n", err)
 		os.Exit(1)
