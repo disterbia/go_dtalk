@@ -2,7 +2,6 @@ package handler
 
 import (
 	"bufio"
-
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -35,7 +35,6 @@ type VideoData struct {
 }
 
 func VideoObjectHandler(c *gin.Context) {
-
 	// 메타데이터를 파싱합니다.
 	metadata := c.PostForm("metadata")
 	fmt.Println(metadata)
@@ -60,146 +59,46 @@ func VideoObjectHandler(c *gin.Context) {
 	}
 	defer os.RemoveAll(tmpDir)
 
+	results := make(chan gin.H, len(files))
 	var wg sync.WaitGroup
 	wg.Add(len(files))
 
-	results := make(chan gin.H, len(files))
-
 	for _, file := range files {
-		//videoObject := videoObjects[index]
-
 		go func(file *multipart.FileHeader) {
 			defer wg.Done()
-			// 파일 저장
-			src := fmt.Sprintf("%s/%s", tmpDir, file.Filename)
+
+			uniqueID := uuid.New()
+
+			src := filepath.Join(tmpDir, file.Filename)
+			dst := filepath.Join(tmpDir, fmt.Sprintf("%s.m3u8", uniqueID))
+
 			if err := c.SaveUploadedFile(file, src); err != nil {
 				results <- gin.H{"file": file.Filename, "error": fmt.Sprintf("upload file err: %s", err.Error())}
 				return
 			}
 
-			// 파일 변환
-			uniqueID := uuid.New()
-			dst := fmt.Sprintf("%s/%s.m3u8", tmpDir, uniqueID)
-			cmd := exec.Command("ffmpeg", "-i", src, "-profile:v", "baseline", "-level", "3.0", "-s", "640x360", "-start_number", "0", "-hls_time", "10", "-hls_list_size", "0", "-f", "hls", "-hls_segment_filename", fmt.Sprintf("%s/%%d-%s.ts", tmpDir, uniqueID), dst)
-			err = cmd.Run()
-			if err != nil {
+			if err := convertVideo(src, dst, uniqueID); err != nil {
 				results <- gin.H{"file": file.Filename, "error": fmt.Sprintf("convert file err: %s", err.Error())}
 				return
 			}
 
-			// 변환된 ts 파일들을 Firebase Storage에 업로드
-			tsFiles, err := ioutil.ReadDir(tmpDir)
+			tsDownloadURLs, err := uploadTsFiles(tmpDir, uniqueID)
 			if err != nil {
-				results <- gin.H{"file": file.Filename, "error": fmt.Sprintf("read ts files err: %s", err.Error())}
+				results <- gin.H{"file": file.Filename, "error": fmt.Sprintf("upload ts files err: %s", err.Error())}
 				return
 			}
 
-			tsDownloadURLs := make(map[string]string)
-
-			var tsUploadWg sync.WaitGroup
-			tsUploadWg.Add(len(tsFiles))
-
-			for _, f := range tsFiles {
-				go func(f os.FileInfo) {
-					defer tsUploadWg.Done()
-
-					if strings.HasSuffix(f.Name(), ".ts") {
-						tsFilePath := fmt.Sprintf("%s/%s", tmpDir, f.Name())
-						objectPath := fmt.Sprintf("videos/%s-%s", uniqueID, f.Name())
-
-						tsFile, err := os.Open(tsFilePath)
-						if err != nil {
-							results <- gin.H{"file": file.Filename, "error": fmt.Sprintf("open ts file err: %s", err.Error())}
-							return
-						}
-						defer tsFile.Close()
-
-						pr, pw := io.Pipe()
-						go func() {
-							defer pw.Close()
-							io.Copy(pw, tsFile)
-						}()
-
-						wc := bucket.Object(objectPath).NewWriter(ctx)
-						defer wc.Close()
-
-						if _, err = io.Copy(wc, pr); err != nil {
-							results <- gin.H{"file": file.Filename, "error": fmt.Sprintf("upload ts file err: %s", err.Error())}
-							return
-						}
-
-						// ts 파일의 다운로드URL 가져오기
-						tsDownloadURL := fmt.Sprintf("https://storage.googleapis.com/%s%s%s", bucketName, "/", objectPath)
-						tsDownloadURLs[f.Name()] = tsDownloadURL
-					}
-				}(f)
+			if err := modifyM3U8File(dst, tmpDir, tsDownloadURLs); err != nil {
+				results <- gin.H{"file": file.Filename, "error": fmt.Sprintf("modify m3u8 file err: %s", err.Error())}
+				return
 			}
 
-			tsUploadWg.Wait()
-
-			// .m3u8 파일 내의 상대 경로를 절대 경로 수정하기
-			m3u8File, err := os.Open(dst)
+			downloadURL, err := uploadM3U8File(tmpDir, file, uniqueID)
 			if err != nil {
-				results <- gin.H{"file": file.Filename, "error": fmt.Sprintf("open m3u8 file err: %s", err.Error())}
+				results <- gin.H{"file": file.Filename, "error": fmt.Sprintf("upload m3u8 file err: %s", err.Error())}
 				return
 			}
-			defer m3u8File.Close()
-
-			m3u8ModifiedPath := fmt.Sprintf("%s/modified_output.m3u8", tmpDir)
-			m3u8ModifiedFile, err := os.Create(m3u8ModifiedPath)
-			if err != nil {
-				results <- gin.H{"file": file.Filename, "error": fmt.Sprintf("create modified m3u8 file err: %s", err.Error())}
-				return
-			}
-			defer m3u8ModifiedFile.Close()
-
-			scanner := bufio.NewScanner(m3u8File)
-			for scanner.Scan() {
-				line := scanner.Text()
-				if strings.HasSuffix(line, ".ts") {
-					line = tsDownloadURLs[line]
-				}
-				if _, err := m3u8ModifiedFile.WriteString(line + "\n"); err != nil {
-					results <- gin.H{"file": file.Filename, "error": fmt.Sprintf("write to modified m3u8 file err: %s", err.Error())}
-					return
-				}
-			}
-
-			if err := scanner.Err(); err != nil {
-				results <- gin.H{"file": file.Filename, "error": fmt.Sprintf("scan m3u8 file err: %s", err.Error())}
-				return
-			}
-
-			// 수정된 .m3u8 파일을 Firebase Storage에 업로드
-			objectPath := fmt.Sprintf("videos/%s-%s.m3u8", uniqueID, file.Filename)
-			wc := bucket.Object(objectPath).NewWriter(ctx)
-			defer wc.Close()
-
-			m3u8ModifiedFile.Seek(0, io.SeekStart)
-			if _, err = io.Copy(wc, m3u8ModifiedFile); err != nil {
-				results <- gin.H{"file": file.Filename, "error": fmt.Sprintf("upload modified m3u8 file err: %s", err.Error())}
-				return
-			}
-
-			// 업로드된 파일의 다운로드 URL 가져오기
-			downloadURL := fmt.Sprintf("https://storage.googleapis.com/%s%s%s", bucketName, "/", objectPath)
-			if err != nil {
-				results <- gin.H{"file": file.Filename, "error": fmt.Sprintf("get download URL err: %s", err.Error())}
-				return
-			}
-			// 업로드된 동영상 정보 firebase database에 저장
-			if err != nil {
-				log.Fatalf("Failed to create firestore client: %v", err)
-			}
-
-			_, _, err = dbClient.Collection("videos").Add(ctx, map[string]interface{}{
-				"title":       videoObjects[0].Title,
-				"uploader":    videoObjects[0].Uploader,
-				"url":         downloadURL,
-				"upload_time": time.Now(),
-				"likes":       0,
-			})
-
+			err = uploadVideoInfoToFirestore(videoObjects[0], downloadURL)
 			if err != nil {
 				results <- gin.H{"file": file.Filename, "error": fmt.Sprintf("upload video info to firestore err: %s", err.Error())}
 				return
@@ -219,4 +118,125 @@ func VideoObjectHandler(c *gin.Context) {
 	}
 
 	c.JSON(200, responseData)
+}
+
+func convertVideo(src, dst string, uniqueID uuid.UUID) error {
+	cmd := exec.Command("ffmpeg", "-i", src, "-profile:v", "baseline", "-level", "3.0", "-s", "640x360", "-start_number", "0", "-hls_time", "10", "-hls_list_size", "0", "-f", "hls", "-hls_segment_filename", fmt.Sprintf("%s/%%d-%s.ts", filepath.Dir(dst), uniqueID), dst)
+	return cmd.Run()
+}
+
+func uploadTsFiles(tmpDir string, uniqueID uuid.UUID) (map[string]string, error) {
+	tsFiles, err := ioutil.ReadDir(tmpDir)
+	if err != nil {
+		return nil, err
+	}
+
+	tsDownloadURLs := make(map[string]string)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	wg.Add(len(tsFiles))
+
+	for _, f := range tsFiles {
+		go func(f os.FileInfo) {
+			defer wg.Done()
+
+			if strings.HasSuffix(f.Name(), ".ts") {
+				tsFilePath := filepath.Join(tmpDir, f.Name())
+				objectPath := fmt.Sprintf("videos/%s-%s", uniqueID, f.Name())
+
+				tsFile, err := os.Open(tsFilePath)
+				if err != nil {
+					return
+				}
+				defer tsFile.Close()
+
+				pr, pw := io.Pipe()
+				go func() {
+					defer pw.Close()
+					io.Copy(pw, tsFile)
+				}()
+
+				wc := bucket.Object(objectPath).NewWriter(ctx)
+				defer wc.Close()
+
+				if _, err = io.Copy(wc, pr); err != nil {
+					return
+				}
+
+				// ts 파일의 다운로드URL 가져오기
+				tsDownloadURL := fmt.Sprintf("https://storage.googleapis.com/%s%s%s", bucketName, "/", objectPath)
+				mu.Lock()
+				tsDownloadURLs[f.Name()] = tsDownloadURL
+				mu.Unlock()
+			}
+		}(f)
+	}
+
+	wg.Wait()
+
+	return tsDownloadURLs, nil
+}
+
+func modifyM3U8File(dst, tmpDir string, tsDownloadURLs map[string]string) error {
+	m3u8File, err := os.Open(dst)
+	if err != nil {
+		return err
+	}
+	defer m3u8File.Close()
+
+	m3u8ModifiedPath := filepath.Join(tmpDir, "modified_output.m3u8")
+	m3u8ModifiedFile, err := os.Create(m3u8ModifiedPath)
+	if err != nil {
+		return err
+	}
+	defer m3u8ModifiedFile.Close()
+
+	scanner := bufio.NewScanner(m3u8File)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasSuffix(line, ".ts") {
+			line = tsDownloadURLs[line]
+		}
+		if _, err := m3u8ModifiedFile.WriteString(line + "\n"); err != nil {
+			return err
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func uploadM3U8File(tmpDir string, file *multipart.FileHeader, uniqueID uuid.UUID) (string, error) {
+	m3u8ModifiedPath := filepath.Join(tmpDir, "modified_output.m3u8")
+	m3u8ModifiedFile, err := os.Open(m3u8ModifiedPath)
+	if err != nil {
+		return "", err
+	}
+	defer m3u8ModifiedFile.Close()
+
+	objectPath := fmt.Sprintf("videos/%s-%s.m3u8", uniqueID, file.Filename)
+	wc := bucket.Object(objectPath).NewWriter(ctx)
+	defer wc.Close()
+
+	if _, err = io.Copy(wc, m3u8ModifiedFile); err != nil {
+		return "", err
+	}
+
+	// 업로드된 파일의 다운로드 URL 가져오기
+	downloadURL := fmt.Sprintf("https://storage.googleapis.com/%s%s%s", bucketName, "/", objectPath)
+	return downloadURL, nil
+}
+
+func uploadVideoInfoToFirestore(videoObject VideoObject, downloadURL string) error {
+	_, _, err := dbClient.Collection("videos").Add(ctx, map[string]interface{}{
+		"title":       videoObject.Title,
+		"uploader":    videoObject.Uploader,
+		"url":         downloadURL,
+		"upload_time": time.Now(),
+		"likes":       0,
+	})
+	return err
 }

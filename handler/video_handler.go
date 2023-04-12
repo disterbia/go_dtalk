@@ -14,11 +14,11 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
-	"cloud.google.com/go/storage"
+	"cloud.google.com/go/firestore"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"google.golang.org/api/iterator"
 )
 
 func VideoHandler(c *gin.Context) {
@@ -181,11 +181,15 @@ func VideoHandler(c *gin.Context) {
 }
 
 type Video struct {
-	Url string `json:"url"`
+	Title       string `firestore:"title" json:"title"`
+	Uploader    string `firestore:"uploader" json:"uploader"`
+	Url         string `firestore:"url" json:"url"`
+	Upload_time string `firestore:"upload_time" json:"upload_time"`
 }
 
 func ReadVideo(c *gin.Context) {
 	pageStr := c.DefaultQuery("page", "0")
+	videoStr := c.DefaultQuery("first", "")
 	page, err := strconv.Atoi(pageStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -194,7 +198,12 @@ func ReadVideo(c *gin.Context) {
 		return
 	}
 
-	videos, err := getVideosFromStorage(page)
+	pageSize := 1
+	if page == 0 {
+		pageSize = 3
+	}
+
+	videos, err := getVideosFromDatabase(page, pageSize, videoStr)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "Failed to fetch videos",
@@ -209,54 +218,206 @@ func ReadVideo(c *gin.Context) {
 		return
 	}
 
-	// Extract URLs from the Video structs
-	videoUrls := make([]string, len(videos))
-	for i, video := range videos {
-		videoUrls[i] = video.Url
-	}
-
-	c.JSON(http.StatusOK, videoUrls)
+	c.JSON(http.StatusOK, videos)
 }
 
-func getVideosFromStorage(page int) ([]Video, error) {
+func getVideosFromDatabase(page int, pageSize int, videoStr string) ([]Video, error) {
 	ctx := context.Background()
+	var videos []Video
 
-	bucket := client.Bucket(bucketName)
+	// Get the total count of videos
+	docs, err := dbClient.Collection("videos").OrderBy("upload_time", firestore.Desc).Offset(page).Limit(pageSize).Documents(ctx).GetAll()
+	firstdoc, err2 := dbClient.Collection("videos").OrderBy("upload_time", firestore.Desc).Offset(0).Limit(1).Documents(ctx).GetAll()
 
-	query := &storage.Query{
-		Prefix: "videos/",
+	// docs, err := dbClient.Collection("videos").Offset(2).Limit(4).Documents(ctx).GetAll()
+	if err != nil {
+		print(1111)
+		return nil, err
 	}
-	objs := bucket.Objects(ctx, query)
+	if err2 != nil {
+		print(2222)
+		return nil, err2
+	}
+	// totalCount := len(docs)
 
-	var videoUrls []string
-	for {
-		attrs, err := objs.Next()
-		if err == iterator.Done {
-			break
+	// // Calculate the number of random documents needed
+	// if page+pageSize > totalCount {
+	// 	print(3333)
+	// 	return nil, nil
+	// }
+
+	if firstdoc[0].Data()["url"].(string) != videoStr {
+		video := Video{
+			Title:       docs[0].Data()["title"].(string),
+			Uploader:    docs[0].Data()["uploader"].(string),
+			Url:         docs[0].Data()["url"].(string),
+			Upload_time: docs[0].Data()["upload_time"].(time.Time).Format(time.RFC3339),
 		}
-		if err != nil {
-			return nil, err
+		videos = append(videos, video)
+	} else {
+		for i := 0; i < pageSize; i++ {
+			doc := docs[i]
+			video := Video{
+				Title:       doc.Data()["title"].(string),
+				Uploader:    doc.Data()["uploader"].(string),
+				Url:         doc.Data()["url"].(string),
+				Upload_time: doc.Data()["upload_time"].(time.Time).Format(time.RFC3339),
+			}
+			videos = append(videos, video)
 		}
-
-		if strings.HasSuffix(attrs.Name, ".m3u8") {
-			videoUrls = append(videoUrls, attrs.MediaLink)
-		}
-	}
-	pageSize := 3
-	startIndex := page * pageSize
-	endIndex := startIndex + pageSize
-	if endIndex > len(videoUrls) {
-		endIndex = len(videoUrls)
-	}
-
-	if startIndex >= len(videoUrls) {
-		return nil, nil
-	}
-
-	videos := make([]Video, endIndex-startIndex)
-	for i := startIndex; i < endIndex; i++ {
-		videos[i-startIndex] = Video{Url: videoUrls[i]}
 	}
 
 	return videos, nil
 }
+
+// type Video struct {
+// 	Url string `json:"url"`
+// }
+
+// func ReadInitialVideo(c *gin.Context) {
+
+// 	videos, err := getInitialVideosFromStorage(0)
+// 	if err != nil {
+// 		c.JSON(http.StatusInternalServerError, gin.H{
+// 			"error": "Failed to fetch videos",
+// 		})
+// 		return
+// 	}
+
+// 	if videos == nil {
+// 		c.JSON(http.StatusBadRequest, gin.H{
+// 			"error": "Page not found",
+// 		})
+// 		return
+// 	}
+
+// 	// Extract URLs from the Video structs
+// 	videoUrls := make([]string, len(videos))
+// 	for i, video := range videos {
+// 		videoUrls[i] = video.Url
+// 	}
+
+// 	c.JSON(http.StatusOK, videoUrls)
+// }
+
+// func getInitialVideosFromStorage(page int) ([]Video, error) {
+// 	ctx := context.Background()
+
+// 	bucket := client.Bucket(bucketName)
+
+// 	query := &storage.Query{
+// 		Prefix: "videos/",
+// 	}
+// 	objs := bucket.Objects(ctx, query)
+
+// 	var videoUrls []string
+// 	for {
+// 		attrs, err := objs.Next()
+// 		if err == iterator.Done {
+// 			break
+// 		}
+// 		if err != nil {
+// 			return nil, err
+// 		}
+
+// 		if strings.HasSuffix(attrs.Name, ".m3u8") {
+// 			videoUrls = append(videoUrls, attrs.MediaLink)
+// 		}
+// 	}
+// 	fmt.Println(len(videoUrls))
+// 	pageSize := 3
+// 	startIndex := page * pageSize
+// 	endIndex := startIndex + pageSize
+// 	if endIndex > len(videoUrls) {
+// 		endIndex = len(videoUrls)
+// 	}
+
+// 	if startIndex >= len(videoUrls) {
+// 		return nil, nil
+// 	}
+
+// 	videos := make([]Video, endIndex-startIndex)
+// 	for i := startIndex; i < endIndex; i++ {
+// 		videos[i-startIndex] = Video{Url: videoUrls[i]}
+// 	}
+
+// 	return videos, nil
+// }
+
+// func ReadVideo(c *gin.Context) {
+// 	pageStr := c.DefaultQuery("page", "0")
+// 	page, err := strconv.Atoi(pageStr)
+// 	if err != nil {
+// 		c.JSON(http.StatusBadRequest, gin.H{
+// 			"error": "Invalid page number",
+// 		})
+// 		return
+// 	}
+
+// 	videos, err := getVideosFromStorage(page)
+// 	if err != nil {
+// 		c.JSON(http.StatusInternalServerError, gin.H{
+// 			"error": "Failed to fetch videos",
+// 		})
+// 		return
+// 	}
+
+// 	if videos == nil {
+// 		c.JSON(http.StatusBadRequest, gin.H{
+// 			"error": "Page not found",
+// 		})
+// 		return
+// 	}
+
+// 	// Extract URLs from the Video structs
+// 	videoUrls := make([]string, len(videos))
+// 	for i, video := range videos {
+// 		videoUrls[i] = video.Url
+// 	}
+
+// 	c.JSON(http.StatusOK, videoUrls)
+// }
+
+// func getVideosFromStorage(page int) ([]Video, error) {
+// 	ctx := context.Background()
+
+// 	bucket := client.Bucket(bucketName)
+
+// 	query := &storage.Query{
+// 		Prefix: "videos/",
+// 	}
+// 	objs := bucket.Objects(ctx, query)
+
+// 	var videoUrls []string
+// 	for {
+// 		attrs, err := objs.Next()
+// 		if err == iterator.Done {
+// 			break
+// 		}
+// 		if err != nil {
+// 			return nil, err
+// 		}
+
+// 		if strings.HasSuffix(attrs.Name, ".m3u8") {
+// 			videoUrls = append(videoUrls, attrs.MediaLink)
+// 		}
+// 	}
+// 	fmt.Println(len(videoUrls))
+// 	pageSize := 3
+// 	startIndex := page * pageSize
+// 	endIndex := startIndex + pageSize
+// 	if endIndex > len(videoUrls) {
+// 		endIndex = len(videoUrls)
+// 	}
+
+// 	if startIndex >= len(videoUrls) {
+// 		return nil, nil
+// 	}
+
+// 	videos := make([]Video, endIndex-startIndex)
+// 	for i := startIndex; i < endIndex; i++ {
+// 		videos[i-startIndex] = Video{Url: videoUrls[i]}
+// 	}
+
+// 	return videos, nil
+// }
