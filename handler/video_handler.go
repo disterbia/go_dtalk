@@ -184,6 +184,7 @@ type Video struct {
 	Title       string `firestore:"title" json:"title"`
 	Uploader    string `firestore:"uploader" json:"uploader"`
 	Url         string `firestore:"url" json:"url"`
+	LikeCount   int    `firestore:"like_count" json:"like_count"`
 	Upload_time string `firestore:"upload_time" json:"upload_time"`
 }
 
@@ -238,20 +239,21 @@ func getVideosFromDatabase(page int, pageSize int, videoStr string) ([]Video, er
 		print(2222)
 		return nil, err2
 	}
-	// totalCount := len(docs)
+	totalCount := len(docs)
 
-	// // Calculate the number of random documents needed
-	// if page+pageSize > totalCount {
-	// 	print(3333)
-	// 	return nil, nil
-	// }
+	// Calculate the number of random documents needed
+	if page+pageSize > totalCount {
+		print(3333)
+		return nil, nil
+	}
 
-	if firstdoc[0].Data()["url"].(string) != videoStr {
+	if firstdoc[0].Data()["url"].(string) != videoStr && page != 0 {
 		video := Video{
 			Title:       docs[0].Data()["title"].(string),
 			Uploader:    docs[0].Data()["uploader"].(string),
 			Url:         docs[0].Data()["url"].(string),
 			Upload_time: docs[0].Data()["upload_time"].(time.Time).Format(time.RFC3339),
+			LikeCount:   int(docs[0].Data()["like_count"].(int64)),
 		}
 		videos = append(videos, video)
 	} else {
@@ -261,6 +263,7 @@ func getVideosFromDatabase(page int, pageSize int, videoStr string) ([]Video, er
 				Title:       doc.Data()["title"].(string),
 				Uploader:    doc.Data()["uploader"].(string),
 				Url:         doc.Data()["url"].(string),
+				LikeCount:   int(doc.Data()["like_count"].(int64)),
 				Upload_time: doc.Data()["upload_time"].(time.Time).Format(time.RFC3339),
 			}
 			videos = append(videos, video)

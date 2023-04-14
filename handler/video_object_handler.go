@@ -23,7 +23,6 @@ import (
 type VideoObject struct {
 	Title    string `json:"title"`
 	Uploader string `json:"uploader"`
-	Path     string `json:"path"`
 }
 
 type VideoData struct {
@@ -31,7 +30,7 @@ type VideoData struct {
 	Uploader   string `json:"uploader"`
 	URL        string `json:"url"`
 	UploadTime string `json:"uploadTime"`
-	LikesCount int    `json:"likesCount"`
+	LikeCount  int    `json:"likeCount"`
 }
 
 func VideoObjectHandler(c *gin.Context) {
@@ -231,12 +230,14 @@ func uploadM3U8File(tmpDir string, file *multipart.FileHeader, uniqueID uuid.UUI
 }
 
 func uploadVideoInfoToFirestore(videoObject VideoObject, downloadURL string) error {
+
 	_, _, err := dbClient.Collection("videos").Add(ctx, map[string]interface{}{
 		"title":       videoObject.Title,
 		"uploader":    videoObject.Uploader,
 		"url":         downloadURL,
 		"upload_time": time.Now(),
-		"likes":       0,
+		"like_count":  0,
 	})
+
 	return err
 }
