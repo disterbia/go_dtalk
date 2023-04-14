@@ -118,7 +118,7 @@ func loadChatHistory(roomId string) ([]Message, error) {
 	ctx := context.Background()
 	messages := []Message{}
 
-	query := dbClient.Collection("chat").Where("roomId", "==", roomId).OrderBy("sendTime", firestore.Asc).Documents(ctx)
+	query := dbClient.Collection("chat").Where("roomId", "==", roomId).OrderBy("sendTime", firestore.Desc).Documents(ctx)
 	docs, err := query.GetAll()
 	if err != nil {
 		return nil, err
