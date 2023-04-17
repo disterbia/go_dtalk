@@ -76,7 +76,7 @@ func VideoObjectHandler(c *gin.Context) {
 				return
 			}
 
-			if err := convertVideo(src, dst, uniqueID); err != nil {
+			if err := convertVideo(src, dst, uniqueID, tmpDir); err != nil {
 				results <- gin.H{"file": file.Filename, "error": fmt.Sprintf("convert file err: %s", err.Error())}
 				return
 			}
@@ -97,7 +97,13 @@ func VideoObjectHandler(c *gin.Context) {
 				results <- gin.H{"file": file.Filename, "error": fmt.Sprintf("upload m3u8 file err: %s", err.Error())}
 				return
 			}
-			err = uploadVideoInfoToFirestore(videoObjects[0], downloadURL)
+
+			thumbnailURL, err := uploadThumbnail(tmpDir, uniqueID)
+			if err != nil {
+				results <- gin.H{"file": file.Filename, "error": fmt.Sprintf("upload thumbnail err: %s", err.Error())}
+				return
+			}
+			err = uploadVideoInfoToFirestore(videoObjects[0], downloadURL, thumbnailURL)
 			if err != nil {
 				results <- gin.H{"file": file.Filename, "error": fmt.Sprintf("upload video info to firestore err: %s", err.Error())}
 				return
@@ -119,8 +125,14 @@ func VideoObjectHandler(c *gin.Context) {
 	c.JSON(200, responseData)
 }
 
-func convertVideo(src, dst string, uniqueID uuid.UUID) error {
+func convertVideo(src, dst string, uniqueID uuid.UUID, tmpDir string) error {
+	thumbnailPath := filepath.Join(tmpDir, fmt.Sprintf("%s-thumbnail.webp", uniqueID))
+	thumbnailCmd := exec.Command("ffmpeg", "-i", src, "-vf", "fps=10,scale=480:640:flags=lanczos", "-ss", "0", "-t", "2", "-loop", "0", "-c:v", "libwebp", "-preset", "default", "-an", "-vsync", "0", "-q:v", "60", thumbnailPath)
+	if err := thumbnailCmd.Run(); err != nil {
+		return err
+	}
 	cmd := exec.Command("ffmpeg", "-i", src, "-profile:v", "baseline", "-level", "3.0", "-s", "640x360", "-start_number", "0", "-hls_time", "10", "-hls_list_size", "0", "-f", "hls", "-hls_segment_filename", fmt.Sprintf("%s/%%d-%s.ts", filepath.Dir(dst), uniqueID), dst)
+
 	return cmd.Run()
 }
 
@@ -229,12 +241,32 @@ func uploadM3U8File(tmpDir string, file *multipart.FileHeader, uniqueID uuid.UUI
 	return downloadURL, nil
 }
 
-func uploadVideoInfoToFirestore(videoObject VideoObject, downloadURL string) error {
+func uploadThumbnail(tmpDir string, uniqueID uuid.UUID) (string, error) {
+	thumbnailPath := filepath.Join(tmpDir, fmt.Sprintf("%s-thumbnail.webp", uniqueID))
+	thumbnailFile, err := os.Open(thumbnailPath)
+	if err != nil {
+		return "", err
+	}
+	defer thumbnailFile.Close()
+
+	objectPath := fmt.Sprintf("thumbnails/%s-thumbnail.webp", uniqueID)
+	wc := bucket.Object(objectPath).NewWriter(ctx)
+	defer wc.Close()
+
+	if _, err = io.Copy(wc, thumbnailFile); err != nil {
+		return "", err
+	}
+
+	thumbnailURL := fmt.Sprintf("https://storage.googleapis.com/%s%s%s", bucketName, "/", objectPath)
+	return thumbnailURL, nil
+}
+func uploadVideoInfoToFirestore(videoObject VideoObject, downloadURL, thumbnailURL string) error {
 
 	_, _, err := dbClient.Collection("videos").Add(ctx, map[string]interface{}{
 		"title":       videoObject.Title,
 		"uploader":    videoObject.Uploader,
 		"url":         downloadURL,
+		"thumbnail":   thumbnailURL, // Add thumbnail URL
 		"upload_time": time.Now(),
 		"like_count":  0,
 	})

@@ -15,6 +15,7 @@ func main() {
 	router.POST("/multiupload", handler.HandleImageMultiUpload)
 	router.GET("/ws", handler.HandleWebSocket)
 	router.GET("/videos", handler.ReadVideo)
+	router.GET("/user_videos", handler.ReadUserVideos)
 	router.POST("/upload", handler.VideoHandler)
 	router.POST("/uploads", handler.VideoObjectHandler)
 	router.POST("/login", handler.LoginHandler)
