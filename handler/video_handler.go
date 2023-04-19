@@ -300,7 +300,7 @@ func getVideosFromDatabase(page int, pageSize int, videoStr string) ([]Video, er
 
 	if firstdoc[0].Data()["url"].(string) != videoStr && page != 0 {
 
-		userId := docs[0].Data()["uploader"].(string)
+		userId := firstdoc[0].Data()["uploader"].(string)
 		user, err := dbClient.Collection("users").Doc(userId).Get(ctx)
 		if err != nil {
 			return nil, err
@@ -310,11 +310,11 @@ func getVideosFromDatabase(page int, pageSize int, videoStr string) ([]Video, er
 			Image: user.Data()["image"].(string),
 		}
 		video := Video{
-			Title:       docs[0].Data()["title"].(string),
-			Uploader:    docs[0].Data()["uploader"].(string),
-			Url:         docs[0].Data()["url"].(string),
-			Upload_time: docs[0].Data()["upload_time"].(time.Time).Format(time.RFC3339),
-			LikeCount:   int(docs[0].Data()["like_count"].(int64)),
+			Title:       firstdoc[0].Data()["title"].(string),
+			Uploader:    firstdoc[0].Data()["uploader"].(string),
+			Url:         firstdoc[0].Data()["url"].(string),
+			Upload_time: firstdoc[0].Data()["upload_time"].(time.Time).Format(time.RFC3339),
+			LikeCount:   int(firstdoc[0].Data()["like_count"].(int64)),
 			UserInfo:    userInfo,
 		}
 		videos = append(videos, video)
