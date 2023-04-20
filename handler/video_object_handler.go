@@ -35,7 +35,14 @@ type VideoData struct {
 
 func VideoObjectHandler(c *gin.Context) {
 	// 메타데이터를 파싱합니다.
+	println("start")
+	start := time.Now()
+
 	metadata := c.PostForm("metadata")
+
+	elapsed := time.Since(start)
+	fmt.Printf("Time to get raw data: %s\n", elapsed)
+
 	fmt.Println(metadata)
 	var videoObjects []VideoObject
 	err := json.Unmarshal([]byte(metadata), &videoObjects)
@@ -123,6 +130,8 @@ func VideoObjectHandler(c *gin.Context) {
 	}
 
 	c.JSON(200, responseData)
+	elapsed2 := time.Since(start)
+	fmt.Printf("Time to end: %s\n", elapsed2)
 }
 
 func convertVideo(src, dst string, uniqueID uuid.UUID, tmpDir string) error {

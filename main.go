@@ -17,7 +17,6 @@ func main() {
 	router.GET("/videos", handler.ReadVideo)
 	router.GET("/mypage", handler.GetMyPage)
 	router.GET("/user_videos", handler.ReadUserVideos)
-	router.POST("/upload", handler.VideoHandler)
 	router.POST("/uploads", handler.VideoObjectHandler)
 	router.POST("/login", handler.LoginHandler)
 	fmt.Println("start")

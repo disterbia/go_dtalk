@@ -2,14 +2,13 @@ package handler
 
 import (
 	"context"
-	"database/sql"
+	// "database/sql"
 	"fmt"
 	"log"
 	"os"
 
 	"cloud.google.com/go/firestore"
 	"cloud.google.com/go/storage"
-	"github.com/go-sql-driver/mysql"
 	"google.golang.org/api/option"
 )
 
@@ -22,9 +21,9 @@ var (
 
 var (
 	//app           *firebase.App
-	opt           option.ClientOption
-	client        *storage.Client
-	dbConnection  *sql.DB
+	opt    option.ClientOption
+	client *storage.Client
+	// dbConnection  *sql.DB
 	projectId     string = "oauthtest-8d82e"
 	bucket        *storage.BucketHandle
 	dbClient      *firestore.Client
@@ -41,9 +40,9 @@ func CloseClientsAndConnections() {
 	if storageClient != nil {
 		storageClient.Close()
 	}
-	if dbConnection != nil {
-		dbConnection.Close()
-	}
+	// if dbConnection != nil {
+	// 	dbConnection.Close()
+	// }
 }
 
 func Init() {
@@ -68,22 +67,22 @@ func Init() {
 	}
 	client = storageClient
 	bucket = client.Bucket(bucketName)
-	config := mysql.Config{
-		User:                 "root",
-		Passwd:               "freedom67",
-		Net:                  "tcp",
-		Addr:                 "localhost:3306",
-		DBName:               "imgurl",
-		AllowNativePasswords: true,
-		ParseTime:            true,
-	}
-	dbConnection, err := sql.Open("mysql", config.FormatDSN())
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Database initialization error: %v\n", err)
-		os.Exit(1)
-	}
+	// config := mysql.Config{
+	// 	User:                 "root",
+	// 	Passwd:               "freedom67",
+	// 	Net:                  "tcp",
+	// 	Addr:                 "localhost:3306",
+	// 	DBName:               "imgurl",
+	// 	AllowNativePasswords: true,
+	// 	ParseTime:            true,
+	// }
+	// dbConnection, err := sql.Open("mysql", config.FormatDSN())
+	// if err != nil {
+	// 	fmt.Fprintf(os.Stderr, "Database initialization error: %v\n", err)
+	// 	os.Exit(1)
+	// }
 
-	// Set up the database connection pool
-	dbConnection.SetMaxIdleConns(10)
-	dbConnection.SetMaxOpenConns(20)
+	// // Set up the database connection pool
+	// dbConnection.SetMaxIdleConns(10)
+	// dbConnection.SetMaxOpenConns(20)
 }
