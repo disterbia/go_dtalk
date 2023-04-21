@@ -67,6 +67,7 @@ func Init() {
 	}
 	client = storageClient
 	bucket = client.Bucket(bucketName)
+	
 	// config := mysql.Config{
 	// 	User:                 "root",
 	// 	Passwd:               "freedom67",

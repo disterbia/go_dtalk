@@ -2,48 +2,68 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"net/http"
+	"strconv"
 
 	"cloud.google.com/go/firestore"
 	"github.com/gin-gonic/gin"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func UpdateLikes(c *gin.Context) {
-	// 요청에서 videoID와 like 값을 가져옴
+	userID := c.Param("userID")
 	videoID := c.Param("videoID")
-	action := c.PostForm("action")
+	action, err := strconv.Atoi(c.PostForm("action"))
 
-	// Firestore 클라이언트 초기화
-	ctx := context.Background()
+	if err != nil || (action != 1 && action != -1) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid action parameter"})
+		return
+	}
 
-	defer dbClient.Close()
-
-	// 좋아요 수 업데이트
+	// user_likes 컬렉션 참조
+	userLikesRef := dbClient.Collection("user_likes").Doc(userID)
 	videoRef := dbClient.Collection("videos").Doc(videoID)
-	err := dbClient.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
-		docSnap, err := tx.Get(videoRef)
+
+	err = dbClient.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		// user_likes 도큐먼트 가져오기
+		userLikesDoc, err := tx.Get(userLikesRef)
+		if err != nil && status.Code(err) != codes.NotFound {
+			return err
+		}
+
+		var userLikes map[string]bool
+		if userLikesDoc.Exists() {
+			if err := userLikesDoc.DataTo(&userLikes); err != nil {
+				return err
+			}
+		} else {
+			userLikes = make(map[string]bool)
+		}
+
+		if action == 1 {
+			userLikes[videoID] = true
+		} else {
+			delete(userLikes, videoID)
+		}
+
+		tx.Set(userLikesRef, userLikes)
+
+		// 좋아요 수 업데이트
+		updateData := []firestore.Update{
+			{
+				Path:  "LikeCount",
+				Value: firestore.Increment(action),
+			},
+		}
+		err = tx.Update(videoRef, updateData)
 		if err != nil {
 			return err
 		}
 
-		var video VideoData
-		if err := docSnap.DataTo(&video); err != nil {
-			return err
-		}
-
-		if action == "like" {
-			//video.LikesCount++
-		} else if action == "dislike" {
-			//video.LikesCount--
-		} else {
-			return errors.New("Invalid action parameter")
-		}
-
-		tx.Set(videoRef, &video)
-
 		return nil
 	})
+
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update likes"})
 		return
