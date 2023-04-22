@@ -39,10 +39,10 @@ func getUserFromDatabase(userID string) (MyPage, error) {
 
 	for _, doc := range docs {
 		video := Video{
-			Title:       doc.Data()["title"].(string),
-			Uploader:    doc.Data()["uploader"].(string),
-			Url:         doc.Data()["url"].(string),
-			LikeCount:   int(doc.Data()["like_count"].(int64)),
+			Title:    doc.Data()["title"].(string),
+			Uploader: doc.Data()["uploader"].(string),
+			Url:      doc.Data()["url"].(string),
+			//LikeCount:   int(doc.Data()["like_count"].(int64)),
 			Upload_time: doc.Data()["upload_time"].(time.Time).Format(time.RFC3339),
 			Thumbnail:   doc.Data()["thumbnail"].(string),
 		}

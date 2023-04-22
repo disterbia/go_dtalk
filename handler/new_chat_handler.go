@@ -10,6 +10,8 @@ import (
 	"cloud.google.com/go/firestore"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var upgrader = websocket.Upgrader{
@@ -23,7 +25,9 @@ var upgrader = websocket.Upgrader{
 type Event struct {
 	EventType string   `json:"event_type"`
 	Message   *Message `json:"message,omitempty"`
-	TotalLike int      `json:"total_like,omitempty"`
+	TotalLike *int     `json:"total_like,omitempty"`
+	UserLike  *bool    `json:"user_like,omitempty"`
+	UserId    *string  `json:"user_id,omitempty"`
 }
 
 type User struct {
@@ -34,7 +38,7 @@ type User struct {
 type Message struct {
 	Username   string `json:"username"`
 	Text       string `json:"text"`
-	RoomId     string `json:"roomId"`
+	RoomId     string `json:"room_id"`
 	TotalCount int    `json:"total_count"`
 	SendTime   string `json:"sendTime"`
 }
@@ -46,6 +50,34 @@ type Room struct {
 
 var rooms = make(map[string]*Room)
 var lock = sync.RWMutex{}
+
+func checkUserLikedVideo(userID string, videoID string) (bool, error) {
+	if userID == "" {
+		return false, nil
+	}
+
+	userLikeDoc, err := dbClient.Collection("user_likes").Doc(userID).Get(ctx)
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			// Create a new document with the specified user ID
+			_, err := dbClient.Collection("user_likes").Doc(userID).Set(ctx, map[string]interface{}{
+				"like_videos": map[string]bool{},
+			})
+			if err != nil {
+				return false, err
+			}
+			return false, nil
+		}
+		return false, err
+	}
+	likedVideos := userLikeDoc.Data()["like_videos"].(map[string]interface{})
+	liked, ok := likedVideos[videoID].(bool)
+	if !ok {
+
+		liked = false
+	}
+	return liked, nil
+}
 
 func handleEvents(room *Room) {
 	for {
@@ -65,7 +97,8 @@ func handleEvents(room *Room) {
 }
 
 func HandleWebSocket(c *gin.Context) {
-	roomId := c.Query("roomId")
+	roomId := c.Query("room_id")
+	userId := c.Query("user_id")
 
 	lock.Lock()
 	if _, ok := rooms[roomId]; !ok {
@@ -103,15 +136,20 @@ func HandleWebSocket(c *gin.Context) {
 
 	// Send total likes
 	totalLikes, err := getTotalLikes(roomId)
+	userLiked, err2 := checkUserLikedVideo(userId, roomId)
 	if err != nil {
 		fmt.Printf("error: %v\n", err)
-	} else {
-		event := Event{
-			EventType: "total_like",
-			TotalLike: totalLikes,
-		}
-		conn.WriteJSON(event)
 	}
+	if err2 != nil {
+		fmt.Printf("error: %v\n", err2)
+	}
+	event := Event{
+		EventType: "total_like",
+		TotalLike: &totalLikes,
+		UserLike:  &userLiked,
+		UserId:    &userId,
+	}
+	conn.WriteJSON(event)
 
 	for {
 		var event Event
@@ -139,8 +177,8 @@ func HandleWebSocket(c *gin.Context) {
 				rooms[roomId].Broadcast <- event
 			}
 		case "like":
-			userId := event.Message.Username
-			likeEvent, err := handleLikeEvent(userId, roomId)
+			userId := event.UserId
+			likeEvent, err := handleLikeEvent(*userId, roomId)
 			if err != nil {
 				fmt.Printf("error: %v\n", err)
 			} else {
@@ -168,13 +206,14 @@ func loadChatHistory(roomId string) ([]Message, error) {
 	if err != nil {
 		return nil, err
 	}
-
+	roomDocCount, err := getMessageDocCount(roomId)
 	for _, doc := range docs {
 		msg := Message{
-			Username: doc.Data()["username"].(string),
-			Text:     doc.Data()["text"].(string),
-			RoomId:   doc.Data()["roomId"].(string),
-			SendTime: doc.Data()["sendTime"].(time.Time).Format(time.RFC3339),
+			Username:   doc.Data()["username"].(string),
+			Text:       doc.Data()["text"].(string),
+			RoomId:     doc.Data()["roomId"].(string),
+			TotalCount: roomDocCount,
+			SendTime:   doc.Data()["sendTime"].(time.Time).Format(time.RFC3339),
 		}
 		messages = append(messages, msg)
 	}
@@ -201,7 +240,7 @@ func getTotalLikes(roomId string) (int, error) {
 		return 0, err
 	}
 
-	totalLikes := doc.Data()["likeCount"].(int64)
+	totalLikes := doc.Data()["like_count"].(int64)
 	return int(totalLikes), nil
 }
 
@@ -216,10 +255,19 @@ func getMessageDocCount(roomId string) (int, error) {
 	return len(docs), nil
 }
 
+func convertToMapStringBool(inputMap map[string]interface{}) map[string]bool {
+	outputMap := make(map[string]bool)
+	for key, value := range inputMap {
+		if boolValue, ok := value.(bool); ok {
+			outputMap[key] = boolValue
+		}
+	}
+	return outputMap
+}
 func handleLikeEvent(userId string, roomId string) (*Event, error) {
-	ctx := context.Background()
+	temp := false
 
-	userDocRef := dbClient.Collection("user_like").Doc(userId)
+	userDocRef := dbClient.Collection("user_likes").Doc(userId)
 	videoDocRef := dbClient.Collection("videos").Doc(roomId)
 
 	userDoc, err := userDocRef.Get(ctx)
@@ -227,8 +275,13 @@ func handleLikeEvent(userId string, roomId string) (*Event, error) {
 		return nil, err
 	}
 
-	likedVideos := userDoc.Data()["likeVideos"].(map[string]bool)
-
+	likedVideosData := userDoc.Data()["like_videos"]
+	var likedVideos map[string]bool
+	if likedVideosData != nil {
+		likedVideos = convertToMapStringBool(likedVideosData.(map[string]interface{}))
+	} else {
+		likedVideos = make(map[string]bool)
+	}
 	// Like or unlike the video
 	if _, ok := likedVideos[roomId]; !ok {
 		likedVideos[roomId] = true
@@ -239,14 +292,15 @@ func handleLikeEvent(userId string, roomId string) (*Event, error) {
 				return err
 			}
 
-			likeCount := videoDoc.Data()["likeCount"].(int64)
+			likeCount := videoDoc.Data()["like_count"].(int64)
 			return tx.Update(videoDocRef, []firestore.Update{
-				{Path: "likeCount", Value: likeCount + 1},
+				{Path: "like_count", Value: likeCount + 1},
 			})
 		})
 		if err != nil {
 			return nil, err
 		}
+		temp = true
 	} else {
 		delete(likedVideos, roomId)
 
@@ -256,19 +310,20 @@ func handleLikeEvent(userId string, roomId string) (*Event, error) {
 				return err
 			}
 
-			likeCount := videoDoc.Data()["likeCount"].(int64)
+			likeCount := videoDoc.Data()["like_count"].(int64)
 			return tx.Update(videoDocRef, []firestore.Update{
-				{Path: "likeCount", Value: likeCount - 1},
+				{Path: "like_count", Value: likeCount - 1},
 			})
 		})
 		if err != nil {
 			return nil, err
 		}
+		temp = false
 	}
 
 	// Update user's liked videos
 	_, err = userDocRef.Update(ctx, []firestore.Update{
-		{Path: "likeVideos", Value: likedVideos},
+		{Path: "like_videos", Value: likedVideos},
 	})
 	if err != nil {
 		return nil, err
@@ -282,7 +337,9 @@ func handleLikeEvent(userId string, roomId string) (*Event, error) {
 
 	return &Event{
 		EventType: "total_like",
-		TotalLike: totalLikes,
+		TotalLike: &totalLikes,
+		UserLike:  &temp,
+		UserId:    &userId,
 	}, nil
 }
 
