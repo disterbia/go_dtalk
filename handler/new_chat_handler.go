@@ -51,34 +51,6 @@ type Room struct {
 var rooms = make(map[string]*Room)
 var lock = sync.RWMutex{}
 
-func checkUserLikedVideo(userID string, videoID string) (bool, error) {
-	if userID == "" {
-		return false, nil
-	}
-
-	userLikeDoc, err := dbClient.Collection("user_likes").Doc(userID).Get(ctx)
-	if err != nil {
-		if status.Code(err) == codes.NotFound {
-			// Create a new document with the specified user ID
-			_, err := dbClient.Collection("user_likes").Doc(userID).Set(ctx, map[string]interface{}{
-				"like_videos": map[string]bool{},
-			})
-			if err != nil {
-				return false, err
-			}
-			return false, nil
-		}
-		return false, err
-	}
-	likedVideos := userLikeDoc.Data()["like_videos"].(map[string]interface{})
-	liked, ok := likedVideos[videoID].(bool)
-	if !ok {
-
-		liked = false
-	}
-	return liked, nil
-}
-
 func handleEvents(room *Room) {
 	for {
 		event := <-room.Broadcast
@@ -110,9 +82,11 @@ func HandleWebSocket(c *gin.Context) {
 	}
 	lock.Unlock()
 
+	println(roomId)
+
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
-		fmt.Printf("error: %v\n", err)
+		fmt.Printf("egrror: %v\n", err)
 		return
 	}
 
@@ -125,7 +99,7 @@ func HandleWebSocket(c *gin.Context) {
 		fmt.Printf("error: %v\n", err)
 	} else {
 		event := Event{
-			EventType: "message",
+			EventType: "first_message",
 			Message:   nil,
 		}
 		for _, msg := range chatHistory {
@@ -143,8 +117,9 @@ func HandleWebSocket(c *gin.Context) {
 	if err2 != nil {
 		fmt.Printf("error: %v\n", err2)
 	}
+	println("first_lLike:", totalLikes, userLiked, len(chatHistory), roomId)
 	event := Event{
-		EventType: "total_like",
+		EventType: "first_like",
 		TotalLike: &totalLikes,
 		UserLike:  &userLiked,
 		UserId:    &userId,
@@ -188,6 +163,34 @@ func HandleWebSocket(c *gin.Context) {
 	}
 }
 
+func checkUserLikedVideo(userID string, videoID string) (bool, error) {
+	if userID == "" {
+		return false, nil
+	}
+
+	userLikeDoc, err := dbClient.Collection("user_likes").Doc(userID).Get(ctx)
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			// Create a new document with the specified user ID
+			_, err := dbClient.Collection("user_likes").Doc(userID).Set(ctx, map[string]interface{}{
+				"like_videos": map[string]bool{},
+			})
+			if err != nil {
+				return false, err
+			}
+			return false, nil
+		}
+		return false, err
+	}
+	likedVideos := userLikeDoc.Data()["like_videos"].(map[string]interface{})
+	liked, ok := likedVideos[videoID].(bool)
+	if !ok {
+
+		liked = false
+	}
+	return liked, nil
+}
+
 func removeUserFromRoom(roomId string, user *User) {
 	lock.Lock()
 	defer lock.Unlock()
@@ -198,7 +201,6 @@ func removeUserFromRoom(roomId string, user *User) {
 }
 
 func loadChatHistory(roomId string) ([]Message, error) {
-	ctx := context.Background()
 	messages := []Message{}
 
 	query := dbClient.Collection("chat").Where("roomId", "==", roomId).OrderBy("sendTime", firestore.Desc).Documents(ctx)
@@ -206,13 +208,13 @@ func loadChatHistory(roomId string) ([]Message, error) {
 	if err != nil {
 		return nil, err
 	}
-	roomDocCount, err := getMessageDocCount(roomId)
+
 	for _, doc := range docs {
 		msg := Message{
 			Username:   doc.Data()["username"].(string),
 			Text:       doc.Data()["text"].(string),
 			RoomId:     doc.Data()["roomId"].(string),
-			TotalCount: roomDocCount,
+			TotalCount: len(docs),
 			SendTime:   doc.Data()["sendTime"].(time.Time).Format(time.RFC3339),
 		}
 		messages = append(messages, msg)
@@ -222,7 +224,6 @@ func loadChatHistory(roomId string) ([]Message, error) {
 }
 
 func saveMessageToFirestore(msg Message, roomId string) error {
-	ctx := context.Background()
 	_, _, err := dbClient.Collection("chat").Add(ctx, map[string]interface{}{
 		"username": msg.Username,
 		"text":     msg.Text,
@@ -234,7 +235,6 @@ func saveMessageToFirestore(msg Message, roomId string) error {
 }
 
 func getTotalLikes(roomId string) (int, error) {
-	ctx := context.Background()
 	doc, err := dbClient.Collection("videos").Doc(roomId).Get(ctx)
 	if err != nil {
 		return 0, err
@@ -245,7 +245,6 @@ func getTotalLikes(roomId string) (int, error) {
 }
 
 func getMessageDocCount(roomId string) (int, error) {
-	ctx := context.Background()
 	query := dbClient.Collection("chat").Where("roomId", "==", roomId)
 	docs, err := query.Documents(ctx).GetAll()
 	if err != nil {
