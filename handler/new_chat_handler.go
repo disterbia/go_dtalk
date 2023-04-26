@@ -82,8 +82,6 @@ func HandleWebSocket(c *gin.Context) {
 	}
 	lock.Unlock()
 
-	println(roomId)
-
 	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		fmt.Printf("egrror: %v\n", err)
@@ -117,14 +115,19 @@ func HandleWebSocket(c *gin.Context) {
 	if err2 != nil {
 		fmt.Printf("error: %v\n", err2)
 	}
-	println("first_lLike:", totalLikes, userLiked, len(chatHistory), roomId)
+
+	///println("first_lLike:", totalLikes, userLiked, len(chatHistory), roomId)
+
 	event := Event{
 		EventType: "first_like",
 		TotalLike: &totalLikes,
 		UserLike:  &userLiked,
 		UserId:    &userId,
 	}
+
 	conn.WriteJSON(event)
+
+	//println("message:", len(chatHistory), "likes:", totalLikes, "roomId", roomId)
 
 	for {
 		var event Event

@@ -108,10 +108,7 @@ func ReadVideo(c *gin.Context) {
 		return
 	}
 
-	pageSize := 1
-	if page == 0 {
-		pageSize = 3
-	}
+	pageSize := 10
 
 	videos, err := getVideosFromDatabase(page, pageSize, videoStr, userId)
 	if err != nil {
