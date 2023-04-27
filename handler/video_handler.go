@@ -108,6 +108,10 @@ func ReadVideo(c *gin.Context) {
 		return
 	}
 
+	// pageSize := 1
+	// if page == 0 {
+	// 	pageSize = 10
+	// }
 	pageSize := 10
 
 	videos, err := getVideosFromDatabase(page, pageSize, videoStr, userId)
@@ -145,10 +149,9 @@ func getVideosFromDatabase(page int, pageSize int, videoStr string, userId strin
 
 	totalCount := len(docs)
 
-	// Calculate the number of random documents needed
 	if pageSize > totalCount {
-		print(3333)
-		return nil, nil
+		pageSize = totalCount
+		println(3333)
 	}
 
 	if firstdoc[0].Data()["url"].(string) != videoStr && page != 0 {

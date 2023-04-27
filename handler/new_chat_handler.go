@@ -23,11 +23,12 @@ var upgrader = websocket.Upgrader{
 }
 
 type Event struct {
-	EventType string   `json:"event_type"`
-	Message   *Message `json:"message,omitempty"`
-	TotalLike *int     `json:"total_like,omitempty"`
-	UserLike  *bool    `json:"user_like,omitempty"`
-	UserId    *string  `json:"user_id,omitempty"`
+	EventType    string     `json:"event_type"`
+	Message      *Message   `json:"message,omitempty"`
+	FirstMessage *[]Message `json:"first_message,omitempty"`
+	TotalLike    *int       `json:"total_like,omitempty"`
+	UserLike     *bool      `json:"user_like,omitempty"`
+	UserId       *string    `json:"user_id,omitempty"`
 }
 
 type User struct {
@@ -98,12 +99,17 @@ func HandleWebSocket(c *gin.Context) {
 	} else {
 		event := Event{
 			EventType: "first_message",
-			Message:   nil,
+			// Message:   nil,
+			FirstMessage: nil,
 		}
-		for _, msg := range chatHistory {
-			event.Message = &msg
-			conn.WriteJSON(event)
-		}
+		event.FirstMessage = &chatHistory
+		conn.WriteJSON(event)
+		println("message:", len(chatHistory), "roomId", roomId)
+		// for _, msg := range chatHistory {
+		// 	event.Message = &msg
+		// 	conn.WriteJSON(event)
+		// 	println("message:", len(chatHistory), "roomId", roomId)
+		// }
 	}
 
 	// Send total likes
@@ -116,8 +122,6 @@ func HandleWebSocket(c *gin.Context) {
 		fmt.Printf("error: %v\n", err2)
 	}
 
-	///println("first_lLike:", totalLikes, userLiked, len(chatHistory), roomId)
-
 	event := Event{
 		EventType: "first_like",
 		TotalLike: &totalLikes,
@@ -126,8 +130,7 @@ func HandleWebSocket(c *gin.Context) {
 	}
 
 	conn.WriteJSON(event)
-
-	//println("message:", len(chatHistory), "likes:", totalLikes, "roomId", roomId)
+	println("first_lLike:", totalLikes, userLiked, len(chatHistory), roomId)
 
 	for {
 		var event Event
@@ -160,6 +163,7 @@ func HandleWebSocket(c *gin.Context) {
 			if err != nil {
 				fmt.Printf("error: %v\n", err)
 			} else {
+				println(&likeEvent.TotalLike)
 				rooms[roomId].Broadcast <- *likeEvent
 			}
 		}
