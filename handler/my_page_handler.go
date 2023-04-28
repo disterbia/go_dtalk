@@ -39,6 +39,7 @@ func getUserFromDatabase(userID string) (MyPage, error) {
 
 	for _, doc := range docs {
 		video := Video{
+			Id:       doc.Ref.ID,
 			Title:    doc.Data()["title"].(string),
 			Uploader: doc.Data()["uploader"].(string),
 			Url:      doc.Data()["url"].(string),
