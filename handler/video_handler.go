@@ -27,6 +27,9 @@ type Video struct {
 type UserInfo struct {
 	Id    string `firestore:"id" json:"id"`
 	Image string `firestore:"image" json:"image"`
+	// LikeCount      int    `json:"like_count"`
+	// FollowerCount  int    `json:"follower_count"`
+	// FollowingCount int    `json:"following_count"`
 }
 
 func ReadUserVideos(c *gin.Context) {
@@ -194,8 +197,8 @@ func getVideosFromDatabase(page int, pageSize int, videoStr string, userId strin
 	} else {
 		for i := 0; i < pageSize; i++ {
 			doc := docs[i]
-			userId := doc.Data()["uploader"].(string)
-			user, err := dbClient.Collection("users").Doc(userId).Get(ctx)
+			creator := doc.Data()["uploader"].(string)
+			user, err := dbClient.Collection("users").Doc(creator).Get(ctx)
 			if err != nil {
 				return nil, err
 			}
