@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"cloud.google.com/go/firestore"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -269,6 +270,7 @@ func uploadThumbnail(tmpDir string, uniqueID uuid.UUID) (string, error) {
 	thumbnailURL := fmt.Sprintf("https://storage.googleapis.com/%s%s%s", bucketName, "/", objectPath)
 	return thumbnailURL, nil
 }
+
 func uploadVideoInfoToFirestore(videoObject VideoObject, downloadURL, thumbnailURL string) error {
 
 	_, _, err := dbClient.Collection("videos").Add(ctx, map[string]interface{}{
@@ -279,6 +281,15 @@ func uploadVideoInfoToFirestore(videoObject VideoObject, downloadURL, thumbnailU
 		"upload_time": time.Now(),
 		"like_count":  0,
 	})
+
+	userDocRef := dbClient.Collection("users").Doc(videoObject.Uploader)
+	_, err2 := userDocRef.Update(ctx, []firestore.Update{
+		{Path: "thumbnail", Value: thumbnailURL},
+	})
+
+	if err2 != nil {
+		return err2
+	}
 
 	return err
 }

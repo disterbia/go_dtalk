@@ -15,7 +15,9 @@ func LoginHandler(c *gin.Context) {
 	if err != nil {
 		// 사용자 ID가 없으면 새 사용자를 추가합니다.
 		_, err = dbClient.Collection("users").Doc(userID).Set(ctx, map[string]interface{}{
-			"id": userID,
+			"id":        userID,
+			"image":     "",
+			"thumbnail": "",
 		})
 
 		if err != nil {

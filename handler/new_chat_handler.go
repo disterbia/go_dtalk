@@ -154,7 +154,7 @@ func HandleWebSocket(c *gin.Context) {
 				} else {
 					event.Message.TotalCount = roomDocCount
 				}
-
+				event.Message.SendTime = time.Now().Format(time.RFC3339)
 				rooms[roomId].Broadcast <- event
 			}
 		case "like":
