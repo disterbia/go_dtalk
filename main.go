@@ -20,6 +20,7 @@ func main() {
 	router.POST("/uploads", handler.VideoObjectHandler)
 	router.POST("/login", handler.LoginHandler)
 	router.GET("/follow", handler.GetFollowingUsersInfo)
+	router.POST("/delete", handler.DeleteVideo)
 	fmt.Println("start")
 	//router.RunTLS(":443", "./cert.pem", "./key.pem")
 	router.Run(":8080")
