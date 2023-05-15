@@ -37,7 +37,9 @@ type User struct {
 }
 
 type Message struct {
-	Username   string `json:"username"`
+	UserImage  string `json:"user_image"`
+	UserId     string `json:"username"`
+	Nickname   string `json:"nickname"`
 	Text       string `json:"text"`
 	RoomId     string `json:"room_id"`
 	TotalCount int    `json:"total_count"`
@@ -218,7 +220,9 @@ func loadChatHistory(roomId string) ([]Message, error) {
 
 	for _, doc := range docs {
 		msg := Message{
-			Username:   doc.Data()["username"].(string),
+			UserImage:  doc.Data()["user_image"].(string),
+			UserId:     doc.Data()["username"].(string),
+			Nickname:   doc.Data()["nickname"].(string),
 			Text:       doc.Data()["text"].(string),
 			RoomId:     doc.Data()["roomId"].(string),
 			TotalCount: len(docs),
@@ -232,10 +236,12 @@ func loadChatHistory(roomId string) ([]Message, error) {
 
 func saveMessageToFirestore(msg Message, roomId string) error {
 	_, _, err := dbClient.Collection("chat").Add(ctx, map[string]interface{}{
-		"username": msg.Username,
-		"text":     msg.Text,
-		"roomId":   roomId,
-		"sendTime": time.Now(),
+		"username":   msg.UserId,
+		"text":       msg.Text,
+		"nickname":   msg.Nickname,
+		"user_image": msg.UserImage,
+		"roomId":     roomId,
+		"sendTime":   time.Now(),
 	})
 
 	return err

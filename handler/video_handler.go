@@ -28,6 +28,8 @@ type UserInfo struct {
 	Id        string `firestore:"id" json:"id"`
 	Image     string `firestore:"image" json:"image"`
 	Thumbnail string `firestore:"thumbnail" json:"thumbnail"`
+	Nickname  string `firestore:"nickname" json:"nickname"`
+	Intro     string `firestore:"introduction" json:"introduction"`
 	// LikeCount      int    `json:"like_count"`
 	// FollowerCount  int    `json:"follower_count"`
 	// FollowingCount int    `json:"following_count"`
@@ -170,6 +172,8 @@ func getVideosFromDatabase(page int, pageSize int, videoStr string, userId strin
 			Id:        user.Data()["id"].(string),
 			Image:     user.Data()["image"].(string),
 			Thumbnail: user.Data()["thumbnail"].(string),
+			Nickname:  user.Data()["nickname"].(string),
+			Intro:     user.Data()["introduction"].(string),
 		}
 		video := Video{
 			Id:          firstdoc[0].Ref.ID,
@@ -209,6 +213,8 @@ func getVideosFromDatabase(page int, pageSize int, videoStr string, userId strin
 				Id:        user.Data()["id"].(string),
 				Image:     user.Data()["image"].(string),
 				Thumbnail: user.Data()["thumbnail"].(string),
+				Nickname:  user.Data()["nickname"].(string),
+				Intro:     user.Data()["introduction"].(string),
 			}
 			video := Video{
 				Id:       doc.Ref.ID,

@@ -10,9 +10,11 @@ import (
 )
 
 type MyPage struct {
-	Id     string  `firestore:"id" json:"id"`
-	Image  string  `firestore:"image" json:"image"`
-	Videos []Video `json:"videos"`
+	Id       string  `firestore:"id" json:"id"`
+	Image    string  `firestore:"image" json:"image"`
+	Nickname string  `firestore:"nickname" json:"nickname"`
+	Intro    string  `firestore:"introduction" json:"introduction"`
+	Videos   []Video `json:"videos"`
 }
 
 func GetMyPage(c *gin.Context) {
@@ -56,9 +58,11 @@ func getUserFromDatabase(userID string) (MyPage, error) {
 	}
 
 	mypage := MyPage{
-		Id:     user.Data()["id"].(string),
-		Image:  user.Data()["image"].(string),
-		Videos: videos,
+		Id:       user.Data()["id"].(string),
+		Image:    user.Data()["image"].(string),
+		Nickname: user.Data()["nickname"].(string),
+		Intro:    user.Data()["introduction"].(string),
+		Videos:   videos,
 	}
 
 	return mypage, nil

@@ -58,6 +58,8 @@ func getFollowingUsersInfo(ctx context.Context, userId string) ([]FollowInfo, er
 			Id:        followingUserSnapshot.Ref.ID,
 			Image:     followingUserInfo["image"].(string),
 			Thumbnail: followingUserInfo["thumbnail"].(string),
+			Nickname:  followingUserInfo["nickname"].(string),
+			Intro:     followingUserInfo["introduction"].(string),
 		}
 
 		followersRef := dbClient.Collection("followers").Doc(followingUserId)
