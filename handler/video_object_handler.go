@@ -141,7 +141,7 @@ func convertVideo(src, dst string, uniqueID uuid.UUID, tmpDir string) error {
 	if err := thumbnailCmd.Run(); err != nil {
 		return err
 	}
-	cmd := exec.Command("ffmpeg", "-i", src, "-profile:v", "baseline", "-level", "3.0", "-s", "640x360", "-start_number", "0", "-hls_time", "10", "-hls_list_size", "0", "-f", "hls", "-hls_segment_filename", fmt.Sprintf("%s/%%d-%s.ts", filepath.Dir(dst), uniqueID), dst)
+	cmd := exec.Command("ffmpeg", "-i", src, "-profile:v", "baseline", "-level", "3.0", "-s", "690x360", "-start_number", "0", "-hls_time", "10", "-hls_list_size", "0", "-f", "hls", "-hls_segment_filename", fmt.Sprintf("%s/%%d-%s.ts", filepath.Dir(dst), uniqueID), dst)
 
 	return cmd.Run()
 }

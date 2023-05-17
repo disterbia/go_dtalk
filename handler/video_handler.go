@@ -113,10 +113,10 @@ func ReadVideo(c *gin.Context) {
 		})
 		return
 	}
-
+	println(videoStr)
 	// pageSize := 1
 	// if page == 0 {
-	// 	pageSize = 10
+	// 	pageSize = 3
 	// }
 	pageSize := 10
 
@@ -149,10 +149,9 @@ func getVideosFromDatabase(page int, pageSize int, videoStr string, userId strin
 		return nil, err
 	}
 	if err2 != nil {
-		print(2222)
+		print(1111)
 		return nil, err2
 	}
-
 	totalCount := len(docs)
 
 	if pageSize > totalCount {
@@ -161,7 +160,7 @@ func getVideosFromDatabase(page int, pageSize int, videoStr string, userId strin
 	}
 
 	if firstdoc[0].Data()["url"].(string) != videoStr && page != 0 {
-
+		println("first!!")
 		userId := firstdoc[0].Data()["uploader"].(string)
 		user, err := dbClient.Collection("users").Doc(userId).Get(ctx)
 		if err != nil {
@@ -201,6 +200,7 @@ func getVideosFromDatabase(page int, pageSize int, videoStr string, userId strin
 		videos = append(videos, video)
 
 	} else {
+
 		for i := 0; i < pageSize; i++ {
 			doc := docs[i]
 			creator := doc.Data()["uploader"].(string)
@@ -239,6 +239,5 @@ func getVideosFromDatabase(page int, pageSize int, videoStr string, userId strin
 			videos = append(videos, video)
 		}
 	}
-
 	return videos, nil
 }
