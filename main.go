@@ -22,6 +22,7 @@ func main() {
 	router.GET("/follow", handler.GetFollowingUsersInfo)
 	router.POST("/delete", handler.DeleteVideoHandler)
 	router.POST("/update", handler.UpdateUser)
+	router.POST("/remove", handler.RemoveHandler)
 	fmt.Println("start")
 	//router.RunTLS(":443", "./cert.pem", "./key.pem")
 	router.Run(":8080")

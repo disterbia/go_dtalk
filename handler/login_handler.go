@@ -1,9 +1,12 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 
+	"cloud.google.com/go/firestore"
 	"github.com/gin-gonic/gin"
+	"google.golang.org/api/iterator"
 )
 
 func LoginHandler(c *gin.Context) {
@@ -45,5 +48,49 @@ func LoginHandler(c *gin.Context) {
 		}
 		// 사용자 ID가 이미 있으면 로그인 처리를 수행합니다.
 		c.JSON(http.StatusOK, userInfo)
+	}
+}
+
+func RemoveHandler(c *gin.Context) {
+	userID := c.DefaultQuery("user_id", "")
+	print(userID)
+	iter := dbClient.Collection("videos").Where("uploader", "==", userID).Documents(ctx)
+	userDocRef := dbClient.Collection("users").Doc(userID)
+	_, err := userDocRef.Update(ctx, []firestore.Update{
+		{Path: "image", Value: ""},
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer iter.Stop()
+
+	deleteCount := 0
+
+	for {
+		doc, err := iter.Next()
+		if err == iterator.Done {
+			println("222")
+			break
+		}
+		if err != nil {
+			println("1111")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to iterate documents"})
+			return
+		}
+
+		_, err = doc.Ref.Delete(ctx)
+		if err != nil {
+			println("1111")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete document"})
+			return
+		}
+		deleteCount++
+	}
+
+	if deleteCount == 0 {
+		c.JSON(http.StatusOK, gin.H{"status": "No documents to delete"})
+	} else {
+		c.JSON(http.StatusOK, gin.H{"status": fmt.Sprintf("%d documents deleted successfully", deleteCount)})
 	}
 }
