@@ -23,6 +23,7 @@ func main() {
 	router.POST("/delete", handler.DeleteVideoHandler)
 	router.POST("/update", handler.UpdateUser)
 	router.POST("/remove", handler.RemoveHandler)
+	router.POST("/block", handler.BlcokHandler)
 	fmt.Println("start")
 	//router.RunTLS(":443", "./cert.pem", "./key.pem")
 	router.Run(":8080")
